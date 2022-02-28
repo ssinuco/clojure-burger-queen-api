@@ -5,6 +5,12 @@ FROM products
 LIMIT :limit
 OFFSET :offset
 
+-- :name select-product :? :1
+-- :doc Get a product
+SELECT *
+FROM products
+WHERE id = :id
+
 -- :name insert-product
 -- :doc Insert a new product
 -- :command :insert
@@ -12,7 +18,7 @@ INSERT INTO products (name, price, image, type)
 VALUES (:name, :price, :image, :type)
 
 -- :name update-product
--- :doc Insert a new product
+-- :doc Update a product
 UPDATE products
 SET name = :name, 
     price = :price,

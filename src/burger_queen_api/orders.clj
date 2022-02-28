@@ -1,45 +1,67 @@
 (ns burger-queen-api.orders
   (:require [clojure.data.json :as json]
             [next.jdbc :as jdbc]
+            [next.jdbc.sql :as sql]
             [burger-queen-api.connection :refer :all]
+            [burger-queen-api.sql.orders :refer :all]
+            [burger-queen-api.utils :refer :all]
             [hugsql.core :as hugsql]
             [hugsql.adapter.next-jdbc :as adapter]))
 
-(def orderKeys [:orders/id :orders/client :orders/status :orders/userId :orders/dateEntrym :orders/dateProcessed])
+(hugsql/def-db-fns "burger_queen_api/sql/orders.sql" {:adapter (adapter/hugsql-adapter-next-jdbc)})
 
-(def productKeys [:orders_products/productId :products/name :products/image :products/price :products/image :orders_products/qty])
+(defn create-order
+  [order]
+  (with-open [conn (jdbc/get-connection ds)]
+    (jdbc/execute! conn ["PRAGMA foreign_keys = ON"])
+    (jdbc/with-transaction [tx conn]
+      (let [orderId (exec-returning-id insert-order tx order)]
+        (println (sql/query tx ["PRAGMA foreign_keys"]))
+        (doseq [orderProduct (:products order)]
+          (insert-order-product tx (assoc orderProduct :orderId orderId)))
+        orderId))))
 
-(def sqlOrders "SELECT orders.*, products.*, orders_products.qty, orders_products.productId 
-FROM( SELECT * FROM orders ORDER BY id ASC LIMIT ? OFFSET ?) AS orders 
-INNER JOIN orders_products ON orders.id = orders_products.orderId 
-INNER JOIN products ON products.id = orders_products.productId")
+(defn destroy-order
+  [id]
+  (with-open [conn (jdbc/get-connection ds)]
+    (jdbc/execute! conn ["PRAGMA foreign_keys = ON"])
+    (jdbc/with-transaction [tx conn]
+      (delete-order-products tx {:orderId id})
+      (delete-order tx {:id id}))
+    id))
 
-(defn order-map
-  [row]
-  {
-   (:orders/id row) 
-   (into 
-    (select-keys row orderKeys) 
-    {:products [(select-keys row productKeys)]})})
-
-(defn query-orders
-  [page limit]
-  (vals 
-   (reduce
-    (fn [accumulator, row]
-      (merge-with 
-       #(update-in %1 [:products] conj (first (:products %2))) 
-       accumulator
-       (order-map row)
-       ))
-    {}
-    (jdbc/plan ds [sqlOrders limit (* limit (dec page))]))))
+(defn post-order
+  [{order :body}]
+  (let []
+    {
+     :status 201
+     :headers {"Content-Type" "text/json"}
+     :body (json/write-str {:id (create-order order)})}))
 
 
-
-(defn list-orders
+(defn get-orders
   [{page :page limit :limit :or {page 1 limit 10}}]
   {
    :status 200
    :headers {"Content-Type" "text/json"}
-   :body (json/write-str (query-orders page limit))})
+   :body (json/write-str (select-orders ds page limit))})
+
+(defn put-order
+  [{order :body {id :id} :params}]
+  (let [result (update-order ds (assoc order :id id))]
+    {
+     :status 200
+     :headers {"Content-Type" "text/json"}
+     :body (json/write-str {:id id})}))
+
+(defn del-order
+  [{{id :id} :params}]
+  (let [result (delete-order ds {:id id})]
+    {
+     :status 200
+     :headers {"Content-Type" "text/json"}
+     :body (json/write-str {:id (destroy-order id)})}))
+
+(defn get-order
+  [req]
+  req)
